@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type Coordinator struct {
@@ -77,6 +79,7 @@ func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
 		if c.ReduceTaskAllDone {
 			return nil
 		}
+		assignReduceTask := false
 		for i := 0; i < c.NumberOfReduce; i++ {
 			if c.ReduceTaskState[i] == 0 {
 				worker.WorkerType = "reduce"
@@ -86,14 +89,19 @@ func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
 				worker.NumberOfMapWork = len(c.MapTaskState)
 				worker.NumberOfReduceWork = c.NumberOfReduce
 				c.ReduceTaskState[i] = 1
+				assignReduceTask = true
+				fmt.Printf("Coordinator assign reduce work %v\n", i)
 				break
 			}
+		}
+		if !assignReduceTask {
+			fmt.Println("Coordinator donot assign reduce work")
 		}
 	}
 	return nil
 }
 
-func (c *Coordinator) FinishTask(worker *WorkerDetail, workerType *bool) error {
+func (c *Coordinator) FinishTask(worker *WorkerDetail, reply *bool) error {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
@@ -102,6 +110,7 @@ func (c *Coordinator) FinishTask(worker *WorkerDetail, workerType *bool) error {
 	haveUnfinishTask := false
 	if worker.WorkerType == "map" {
 		c.MapTaskState[worker.TaskID] = 2
+		*reply = true
 		for i := 0; i < len(c.MapTaskState); i++ {
 			if c.MapTaskState[i] != 2 {
 				haveUnfinishTask = true
@@ -110,11 +119,12 @@ func (c *Coordinator) FinishTask(worker *WorkerDetail, workerType *bool) error {
 		}
 		if !haveUnfinishTask {
 			c.MapTaskAllDone = true
-			// fmt.Println("Map task are all finished!")
+			fmt.Println("Map task are all finished!")
 		}
 		worker.WorkerState = 1
 	} else {
 		c.ReduceTaskState[worker.TaskID] = 2
+		*reply = true
 		for i := 0; i < len(c.ReduceTaskState); i++ {
 			if c.ReduceTaskState[i] != 2 {
 				haveUnfinishTask = true
@@ -123,7 +133,7 @@ func (c *Coordinator) FinishTask(worker *WorkerDetail, workerType *bool) error {
 		}
 		if !haveUnfinishTask {
 			c.ReduceTaskAllDone = true
-			// fmt.Println("Reduce task are all finished!")
+			fmt.Println("Reduce task are all finished!")
 		}
 		worker.WorkerState = 1
 	}
@@ -131,6 +141,8 @@ func (c *Coordinator) FinishTask(worker *WorkerDetail, workerType *bool) error {
 }
 
 func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
+	time.Sleep(10 * time.Second)
+	fmt.Println("Map reset func begin")
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
@@ -138,11 +150,16 @@ func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
 	if c.MapTaskState[*TaskID] != 2 {
 		c.MapTaskState[*TaskID] = 0
 		*reply = true
+		fmt.Printf("Map reset %v\n", *TaskID)
+	} else {
+		fmt.Printf("Map donot reset %v\n", *TaskID)
 	}
 	return nil
 }
 
 func (c *Coordinator) SetReduceTaskUnassign(TaskID *int, reply *bool) error {
+	time.Sleep(10 * time.Second)
+	fmt.Printf("Reduce reset %v func begin\n", *TaskID)
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
@@ -150,6 +167,9 @@ func (c *Coordinator) SetReduceTaskUnassign(TaskID *int, reply *bool) error {
 	if c.ReduceTaskState[*TaskID] != 2 {
 		c.ReduceTaskState[*TaskID] = 0
 		*reply = true
+		fmt.Printf("Reduce has reset %v\n", *TaskID)
+	} else {
+		fmt.Printf("Reduce donot reset %v\n", *TaskID)
 	}
 	return nil
 }

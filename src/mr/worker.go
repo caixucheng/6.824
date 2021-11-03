@@ -46,6 +46,9 @@ func Worker(mapf func(string, string) []KeyValue,
 	MapWork(mapf)
 
 	// fmt.Println("Map workers shutdown")
+	for !CallAskForWorkIsDone("map") {
+		time.Sleep(2 * time.Second)
+	}
 
 	ReduceWork(reducef)
 
@@ -65,15 +68,10 @@ func MapWork(mapf func(string, string) []KeyValue) {
 		if worker.WorkerState == -1 {
 			time.Sleep(3 * time.Second)
 			continue
+		} else {
+			go CallSetMapTaskUnassign(worker.TaskID)
+			fmt.Printf("Maper open the %v\n", worker.TaskName)
 		}
-
-		// go func(TaskID int) {
-		// 	time.Sleep(10 * time.Second)
-		// 	reply := CallSetMapTaskUnassign(TaskID)
-		// 	if reply {
-		// 		fmt.Printf("Number %v map task has reset\n", TaskID)
-		// 	}
-		// }(worker.TaskID)
 
 		file, err := os.Open(worker.TaskName)
 		if err != nil {
@@ -84,8 +82,6 @@ func MapWork(mapf func(string, string) []KeyValue) {
 			log.Fatalf("cannot read %v", worker.TaskName)
 		}
 		file.Close()
-
-		os.Exit(1)
 
 		kva := mapf(worker.TaskName, string(content))
 
@@ -107,8 +103,11 @@ func MapWork(mapf func(string, string) []KeyValue) {
 			}
 		}
 
-		CallFinishTask(worker)
-		// time.Sleep(3 * time.Second)
+		if CallFinishTask(worker) {
+			fmt.Printf("Maper finished %v\n", worker.TaskName)
+		} else {
+			fmt.Printf("Maper unfinished %v\n", worker.TaskName)
+		}
 	}
 }
 
@@ -119,17 +118,13 @@ func ReduceWork(reducef func(string, []string) string) {
 		}
 		worker := CallGetTask("reduce")
 		if worker.WorkerState == -1 {
+			fmt.Println("No reduce task to deal")
 			time.Sleep(3 * time.Second)
 			continue
+		} else {
+			go CallSetReduceTaskUnassign(worker.TaskID)
+			fmt.Printf("Reducer open the mr-*-%v\n", worker.TaskID)
 		}
-
-		// go func(TaskID int) {
-		// 	time.Sleep(10 * time.Second)
-		// 	reply := CallSetReduceTaskUnassign(TaskID)
-		// 	if reply {
-		// 		fmt.Printf("Number %v reduce task has reset\n", TaskID)
-		// 	}
-		// }(worker.TaskID)
 
 		var kva []KeyValue
 		for i := 0; i < worker.NumberOfMapWork; i++ {
@@ -173,8 +168,11 @@ func ReduceWork(reducef func(string, []string) string) {
 
 		ofile.Close()
 
-		CallFinishTask(worker)
-		// time.Sleep(3 * time.Second)
+		if CallFinishTask(worker) {
+			fmt.Printf("Reducer finished mr-out-%v\n", worker.TaskID)
+		} else {
+			fmt.Printf("Reducer unfinished mr-out-%v\n", worker.TaskID)
+		}
 	}
 }
 
