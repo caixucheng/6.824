@@ -9,17 +9,8 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
-	"sync"
 	"time"
 )
-
-// for sorting by key.
-type ByKey []KeyValue
-
-// for sorting by key.
-func (a ByKey) Len() int           { return len(a) }
-func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // Map functions return a slice of KeyValue.
@@ -28,6 +19,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -46,149 +43,169 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-	var wg sync.WaitGroup
+	MapWork(mapf)
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			for {
-				worker := WorkerDetail{
-					WorkerType:     "map",
-					WorkerID:       i,
-					WorkerStatu:    0,
-					TaskID:         0,
-					TaskName:       "-1",
-					NumberOfReduce: -1,
-				}
-				call("Coordinator.GetTask", "map", &worker)
-				if worker.TaskName == "-1" {
-					fmt.Println("No map task!")
-					break
-				}
-				file, err := os.Open(worker.TaskName)
-				if err != nil {
-					log.Fatalf("Maper cannot open %v", worker.TaskName)
-				}
-				content, err := ioutil.ReadAll(file)
-				if err != nil {
-					log.Fatalf("Maper cannot read %v", worker.TaskName)
-				}
-				file.Close()
-				kva := mapf(worker.TaskName, string(content))
+	// fmt.Println("Map workers shutdown")
 
-				kvas := make([][]KeyValue, worker.NumberOfReduce)
-				for _, kv := range kva {
-					index := ihash(kv.Key) % worker.NumberOfReduce
-					kvas[index] = append(kvas[index], kv)
-				}
-				for i := 0; i < worker.NumberOfReduce; i++ {
-					intername := fmt.Sprintf("mr-%v-%v", worker.TaskID, i)
-					interfile, _ := os.Create(intername)
+	ReduceWork(reducef)
 
-					enc := json.NewEncoder(interfile)
-					for _, kv := range kvas[i] {
-						err := enc.Encode(&kv)
-						if err != nil {
-							log.Fatal("Encode Intermidate error: ", err)
-						}
-					}
-				}
-
-				call("Coordinator.FinishTask", "map", &worker)
-				if worker.WorkerStatu == 1 {
-					fmt.Printf("Number %v maper finish the %v\n", worker.WorkerID, worker.TaskName)
-				} else {
-					log.Fatalf("Number %v maper unfinish the %v", worker.WorkerID, worker.TaskName)
-				}
-
-				time.Sleep(2 * time.Second)
-			}
-		}(i)
-	}
-
-	// time.Sleep(3 * time.Second)
-	wg.Wait()
-
-	// var intermediate []KeyValue
-	// var output string
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			for {
-				worker := WorkerDetail{
-					WorkerType:     "reduce",
-					WorkerID:       i,
-					WorkerStatu:    0,
-					TaskID:         0,
-					TaskName:       "-1",
-					NumberOfReduce: -1,
-				}
-				call("Coordinator.GetTask", "reduce", &worker)
-				if worker.TaskName == "-1" {
-					// log.Fatalf("Number %v reducer failed to get task!\n", i)
-					fmt.Println("No reduce task!")
-					break
-				}
-
-				var kva []KeyValue
-				for index := 0; index < 8; index++ {
-					intername := fmt.Sprintf("mr-%v-%v", index, worker.TaskName)
-					// fmt.Println(intername)
-					file, err := os.Open(intername)
-					if err != nil {
-						log.Fatalf("Reducer cannot open %v", intername)
-					}
-
-					dec := json.NewDecoder(file)
-					for {
-						var kv KeyValue
-						if err := dec.Decode(&kv); err != nil {
-							break
-						}
-						kva = append(kva, kv)
-					}
-
-					file.Close()
-				}
-
-				sort.Sort(ByKey(kva))
-
-				oname := fmt.Sprintf("mr-out-%v", worker.TaskName)
-				ofile, _ := os.Create(oname)
-
-				i := 0
-				for i < len(kva) {
-					j := i + 1
-					for j < len(kva) && kva[j].Key == kva[i].Key {
-						j++
-					}
-					values := []string{}
-					for k := i; k < j; k++ {
-						values = append(values, kva[k].Value)
-					}
-					output := reducef(kva[i].Key, values)
-
-					fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
-
-					i = j
-				}
-
-				call("Coordinator.FinishTask", "reduce", &worker)
-				if worker.WorkerStatu == 1 {
-					fmt.Printf("Number %v reducer finish the %v\n", worker.WorkerID, worker.TaskName)
-				} else {
-					log.Fatalf("Number %v reducer unfinish the %v", worker.WorkerID, worker.TaskName)
-				}
-			}
-		}(i)
-	}
-
-	wg.Wait()
+	// fmt.Println("Reduce workers shutdown")
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
+
+}
+
+func MapWork(mapf func(string, string) []KeyValue) {
+	for {
+		if CallAskForWorkIsDone("map") {
+			break
+		}
+		worker := CallGetTask("map")
+		if worker.WorkerState == -1 {
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		// go func(TaskID int) {
+		// 	time.Sleep(10 * time.Second)
+		// 	reply := CallSetMapTaskUnassign(TaskID)
+		// 	if reply {
+		// 		fmt.Printf("Number %v map task has reset\n", TaskID)
+		// 	}
+		// }(worker.TaskID)
+
+		file, err := os.Open(worker.TaskName)
+		if err != nil {
+			log.Fatalf("cannot open %v", worker.TaskName)
+		}
+		content, err := ioutil.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", worker.TaskName)
+		}
+		file.Close()
+
+		os.Exit(1)
+
+		kva := mapf(worker.TaskName, string(content))
+
+		kvas := make([][]KeyValue, worker.NumberOfReduceWork)
+		for _, kv := range kva {
+			index := ihash(kv.Key) % worker.NumberOfReduceWork
+			kvas[index] = append(kvas[index], kv)
+		}
+		for i := 0; i < worker.NumberOfReduceWork; i++ {
+			intername := fmt.Sprintf("mr-%v-%v", worker.TaskID, i)
+			interfile, _ := os.Create(intername)
+
+			enc := json.NewEncoder(interfile)
+			for _, kv := range kvas[i] {
+				err := enc.Encode(&kv)
+				if err != nil {
+					log.Fatal("Encode Intermidate error: ", err)
+				}
+			}
+		}
+
+		CallFinishTask(worker)
+		// time.Sleep(3 * time.Second)
+	}
+}
+
+func ReduceWork(reducef func(string, []string) string) {
+	for {
+		if CallAskForWorkIsDone("reduce") {
+			break
+		}
+		worker := CallGetTask("reduce")
+		if worker.WorkerState == -1 {
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		// go func(TaskID int) {
+		// 	time.Sleep(10 * time.Second)
+		// 	reply := CallSetReduceTaskUnassign(TaskID)
+		// 	if reply {
+		// 		fmt.Printf("Number %v reduce task has reset\n", TaskID)
+		// 	}
+		// }(worker.TaskID)
+
+		var kva []KeyValue
+		for i := 0; i < worker.NumberOfMapWork; i++ {
+			interFileName := fmt.Sprintf("mr-%v-%v", i, worker.TaskID)
+			file, err := os.Open(interFileName)
+			if err != nil {
+				log.Fatalf("Reducer cannot open %v", interFileName)
+			}
+			dec := json.NewDecoder(file)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					break
+				}
+				kva = append(kva, kv)
+			}
+		}
+
+		sort.Sort(ByKey(kva))
+
+		oname := fmt.Sprintf("mr-out-%v", worker.TaskID)
+		ofile, _ := os.Create(oname)
+
+		i := 0
+		for i < len(kva) {
+			j := i + 1
+			for j < len(kva) && kva[j].Key == kva[i].Key {
+				j++
+			}
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, kva[k].Value)
+			}
+			output := reducef(kva[i].Key, values)
+
+			// this is the correct format for each line of Reduce output.
+			fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
+
+			i = j
+		}
+
+		ofile.Close()
+
+		CallFinishTask(worker)
+		// time.Sleep(3 * time.Second)
+	}
+}
+
+func CallAskForWorkIsDone(workerType string) bool {
+	done := false
+	call("Coordinator.AskForWorkIsDone", workerType, &done)
+	return done
+}
+
+func CallGetTask(workerType string) WorkerDetail {
+	var worker WorkerDetail
+	call("Coordinator.GetTask", workerType, &worker)
+	return worker
+}
+
+func CallFinishTask(worker WorkerDetail) bool {
+	ret := false
+	call("Coordinator.FinishTask", &worker, &ret)
+	return ret
+}
+
+func CallSetMapTaskUnassign(TaskID int) bool {
+	ret := false
+	call("Coordinator.SetMapTaskUnassign", &TaskID, &ret)
+	return ret
+}
+
+func CallSetReduceTaskUnassign(TaskID int) bool {
+	ret := false
+	call("Coordinator.SetReduceTaskUnassign", &TaskID, &ret)
+	return ret
 }
 
 //

@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -15,96 +14,20 @@ type Coordinator struct {
 	// Your definitions here.
 	TaskName []string
 
-	NumberOfTask    int
-	NumberOfMaper   int
-	NumberOfReducer int
+	// MapWorkerState    []int
+	// ReduceWorkerState []int
+	MapTaskState    []int
+	ReduceTaskState []int
 
-	MaperStatu      []int
-	MapTaskStatu    []int
-	ReducerStatu    []int
-	ReduceTaskStatu []int
+	MapTaskAllDone    bool
+	ReduceTaskAllDone bool
 
-	mapAllDone    bool
-	reduceAllDone bool
+	NumberOfReduce int
 
-	quit      chan bool
-	TaskMutex sync.Mutex
+	Mutex sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
-
-func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
-	c.TaskMutex.Lock()
-	if *workerType == "map" {
-		mapAllDone := true
-		for i := 0; i < c.NumberOfTask; i++ {
-			if c.MapTaskStatu[i] == 0 {
-				*worker = WorkerDetail{
-					WorkerType:     "map",
-					WorkerStatu:    2,
-					TaskID:         i,
-					TaskName:       c.TaskName[i],
-					NumberOfReduce: c.NumberOfReducer,
-				}
-				c.MapTaskStatu[i] = 1
-				c.MaperStatu[i] = 2
-				mapAllDone = false
-				break
-			}
-		}
-		if mapAllDone {
-			fmt.Println("Map Tasks are finished!")
-		}
-	} else {
-		reduceAllDone := true
-		for i := 0; i < c.NumberOfReducer; i++ {
-			if c.ReduceTaskStatu[i] == 0 {
-				*worker = WorkerDetail{
-					WorkerType:     "reduce",
-					WorkerStatu:    2,
-					TaskID:         i,
-					TaskName:       strconv.Itoa(i),
-					NumberOfReduce: c.NumberOfReducer,
-				}
-				c.ReduceTaskStatu[i] = 1
-				c.ReducerStatu[i] = 2
-				reduceAllDone = false
-				break
-			}
-		}
-		if reduceAllDone {
-			fmt.Println("Reduce Tasks are finished!")
-			c.quit <- true
-		}
-	}
-	c.TaskMutex.Unlock()
-	return nil
-}
-
-func (c *Coordinator) FinishTask(workerType *string, worker *WorkerDetail) error {
-	if *workerType == "map" {
-		*worker = WorkerDetail{
-			WorkerType:  "map",
-			WorkerStatu: 1,
-			TaskID:      0,
-			// TaskName:       "-1",
-			NumberOfReduce: 0,
-		}
-		c.MapTaskStatu[worker.TaskID] = 2
-		c.MaperStatu[worker.WorkerID] = 1
-	} else {
-		*worker = WorkerDetail{
-			WorkerType:  "reduce",
-			WorkerStatu: 1,
-			TaskID:      0,
-			// TaskName:       "-1",
-			NumberOfReduce: 0,
-		}
-		c.ReduceTaskStatu[worker.TaskID] = 2
-		c.ReducerStatu[worker.WorkerID] = 1
-	}
-	return nil
-}
 
 //
 // an example RPC handler.
@@ -113,6 +36,121 @@ func (c *Coordinator) FinishTask(workerType *string, worker *WorkerDetail) error
 //
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
+	return nil
+}
+
+func (c *Coordinator) AskForWorkIsDone(workerType *string, reply *bool) error {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	// *reply = false
+	if *workerType == "map" {
+		*reply = c.MapTaskAllDone
+	} else if *workerType == "reduce" {
+		*reply = c.ReduceTaskAllDone
+	}
+	return nil
+}
+
+func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	worker.WorkerState = -1
+	if *workerType == "map" {
+		if c.MapTaskAllDone {
+			return nil
+		}
+		for i := 0; i < len(c.MapTaskState); i++ {
+			if c.MapTaskState[i] == 0 {
+				worker.WorkerType = "map"
+				worker.WorkerState = 1
+				worker.TaskID = i
+				worker.TaskName = c.TaskName[i]
+				worker.NumberOfMapWork = len(c.MapTaskState)
+				worker.NumberOfReduceWork = c.NumberOfReduce
+				c.MapTaskState[i] = 1
+				break
+			}
+		}
+	} else if *workerType == "reduce" {
+		if c.ReduceTaskAllDone {
+			return nil
+		}
+		for i := 0; i < c.NumberOfReduce; i++ {
+			if c.ReduceTaskState[i] == 0 {
+				worker.WorkerType = "reduce"
+				worker.WorkerState = 1
+				worker.TaskID = i
+				worker.TaskName = strconv.Itoa(i)
+				worker.NumberOfMapWork = len(c.MapTaskState)
+				worker.NumberOfReduceWork = c.NumberOfReduce
+				c.ReduceTaskState[i] = 1
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Coordinator) FinishTask(worker *WorkerDetail, workerType *bool) error {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	worker.WorkerState = -1
+	worker.TaskName = ""
+	haveUnfinishTask := false
+	if worker.WorkerType == "map" {
+		c.MapTaskState[worker.TaskID] = 2
+		for i := 0; i < len(c.MapTaskState); i++ {
+			if c.MapTaskState[i] != 2 {
+				haveUnfinishTask = true
+				break
+			}
+		}
+		if !haveUnfinishTask {
+			c.MapTaskAllDone = true
+			// fmt.Println("Map task are all finished!")
+		}
+		worker.WorkerState = 1
+	} else {
+		c.ReduceTaskState[worker.TaskID] = 2
+		for i := 0; i < len(c.ReduceTaskState); i++ {
+			if c.ReduceTaskState[i] != 2 {
+				haveUnfinishTask = true
+				break
+			}
+		}
+		if !haveUnfinishTask {
+			c.ReduceTaskAllDone = true
+			// fmt.Println("Reduce task are all finished!")
+		}
+		worker.WorkerState = 1
+	}
+	return nil
+}
+
+func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	*reply = false
+	if c.MapTaskState[*TaskID] != 2 {
+		c.MapTaskState[*TaskID] = 0
+		*reply = true
+	}
+	return nil
+}
+
+func (c *Coordinator) SetReduceTaskUnassign(TaskID *int, reply *bool) error {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	*reply = false
+	if c.ReduceTaskState[*TaskID] != 2 {
+		c.ReduceTaskState[*TaskID] = 0
+		*reply = true
+	}
 	return nil
 }
 
@@ -137,10 +175,12 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := true
+	ret := false
 
 	// Your code here.
-	ret = <-c.quit
+	if c.MapTaskAllDone && c.ReduceTaskAllDone {
+		ret = true
+	}
 
 	return ret
 }
@@ -155,23 +195,18 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
 		TaskName: files,
 
-		NumberOfTask:    n,
-		NumberOfMaper:   n,
-		NumberOfReducer: nReduce,
+		// MapWorkerState:    make([]int, n),
+		// ReduceWorkerState: make([]int, nReduce),
+		MapTaskState:    make([]int, n),
+		ReduceTaskState: make([]int, nReduce),
 
-		MapTaskStatu:    make([]int, n),
-		MaperStatu:      make([]int, n),
-		ReduceTaskStatu: make([]int, nReduce),
-		ReducerStatu:    make([]int, nReduce),
+		NumberOfReduce: nReduce,
 
-		mapAllDone:    false,
-		reduceAllDone: false,
-
-		quit: make(chan bool),
+		MapTaskAllDone:    false,
+		ReduceTaskAllDone: false,
 	}
 
 	// Your code here.
-	defer fmt.Println("Coordinator is running!")
 
 	c.server()
 	return &c

@@ -24,16 +24,17 @@ type ExampleReply struct {
 	Y int
 }
 
-// Add your RPC definitions here.
-
 type WorkerDetail struct {
-	WorkerType     string
-	WorkerID       int
-	WorkerStatu    int
-	TaskID         int
-	TaskName       string
-	NumberOfReduce int
+	WorkerType         string
+	WorkID             int
+	WorkerState        int
+	TaskID             int
+	TaskName           string
+	NumberOfMapWork    int
+	NumberOfReduceWork int
 }
+
+// Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
