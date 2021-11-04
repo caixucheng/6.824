@@ -25,8 +25,8 @@ type ExampleReply struct {
 }
 
 type WorkerDetail struct {
+	// WorkID             int
 	WorkerType         string
-	WorkID             int
 	WorkerState        int
 	TaskID             int
 	TaskName           string

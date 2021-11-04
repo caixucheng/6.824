@@ -68,10 +68,11 @@ func MapWork(mapf func(string, string) []KeyValue) {
 		if worker.WorkerState == -1 {
 			time.Sleep(3 * time.Second)
 			continue
-		} else {
-			// go CallSetMapTaskUnassign(worker.TaskID)
-			fmt.Printf("Maper open the %v\n", worker.TaskName)
 		}
+		// else {
+		// 	go CallSetMapTaskUnassign(worker.TaskID)
+		// 	fmt.Printf("Maper open the %v\n", worker.TaskName)
+		// }
 
 		file, err := os.Open(worker.TaskName)
 		if err != nil {
@@ -102,12 +103,12 @@ func MapWork(mapf func(string, string) []KeyValue) {
 				}
 			}
 		}
-
-		if CallFinishTask(worker) {
-			fmt.Printf("Maper finished %v\n", worker.TaskName)
-		} else {
-			fmt.Printf("Maper unfinished %v\n", worker.TaskName)
-		}
+		CallFinishTask(worker)
+		// if CallFinishTask(worker) {
+		// 	fmt.Printf("Maper finished %v\n", worker.TaskName)
+		// } else {
+		// 	fmt.Printf("Maper unfinished %v\n", worker.TaskName)
+		// }
 	}
 }
 
@@ -118,13 +119,14 @@ func ReduceWork(reducef func(string, []string) string) {
 		}
 		worker := CallGetTask("reduce")
 		if worker.WorkerState == -1 {
-			fmt.Println("No reduce task to deal")
+			// fmt.Println("No reduce task to deal")
 			time.Sleep(3 * time.Second)
 			continue
-		} else {
-			// go CallSetReduceTaskUnassign(worker.TaskID)
-			fmt.Printf("Reducer open the mr-*-%v\n", worker.TaskID)
 		}
+		// else {
+		// 	go CallSetReduceTaskUnassign(worker.TaskID)
+		// 	fmt.Printf("Reducer open the mr-*-%v\n", worker.TaskID)
+		// }
 
 		var kva []KeyValue
 		for i := 0; i < worker.NumberOfMapWork; i++ {
@@ -168,11 +170,12 @@ func ReduceWork(reducef func(string, []string) string) {
 
 		ofile.Close()
 
-		if CallFinishTask(worker) {
-			fmt.Printf("Reducer finished mr-out-%v\n", worker.TaskID)
-		} else {
-			fmt.Printf("Reducer unfinished mr-out-%v\n", worker.TaskID)
-		}
+		CallFinishTask(worker)
+		// if CallFinishTask(worker) {
+		// 	fmt.Printf("Reducer finished mr-out-%v\n", worker.TaskID)
+		// } else {
+		// 	fmt.Printf("Reducer unfinished mr-out-%v\n", worker.TaskID)
+		// }
 	}
 }
 

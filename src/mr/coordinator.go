@@ -80,7 +80,7 @@ func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
 		if c.ReduceTaskAllDone {
 			return nil
 		}
-		assignReduceTask := false
+		// assignReduceTask := false
 		for i := 0; i < c.NumberOfReduce; i++ {
 			if c.ReduceTaskState[i] == 0 {
 				worker.WorkerType = "reduce"
@@ -90,15 +90,15 @@ func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
 				worker.NumberOfMapWork = len(c.MapTaskState)
 				worker.NumberOfReduceWork = c.NumberOfReduce
 				c.ReduceTaskState[i] = 1
-				assignReduceTask = true
+				// assignReduceTask = true
 				go c.SetReduceTaskUnassign(&worker.TaskID, new(bool))
-				fmt.Printf("Coordinator assign reduce work %v\n", i)
+				// fmt.Printf("Coordinator assign reduce work %v\n", i)
 				break
 			}
 		}
-		if !assignReduceTask {
-			fmt.Println("Coordinator donot assign reduce work")
-		}
+		// if !assignReduceTask {
+		// 	fmt.Println("Coordinator donot assign reduce work")
+		// }
 	}
 	return nil
 }
@@ -143,8 +143,8 @@ func (c *Coordinator) FinishTask(worker *WorkerDetail, reply *bool) error {
 }
 
 func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
-	time.Sleep(5 * time.Second)
-	fmt.Println("Map reset func begin")
+	time.Sleep(8 * time.Second)
+	// fmt.Println("Map reset func begin")
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
@@ -152,16 +152,17 @@ func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
 	if c.MapTaskState[*TaskID] != 2 {
 		c.MapTaskState[*TaskID] = 0
 		*reply = true
-		fmt.Printf("Map reset %v\n", *TaskID)
-	} else {
-		fmt.Printf("Map donot reset %v\n", *TaskID)
+		// fmt.Printf("Map reset %v\n", *TaskID)
 	}
+	// } else {
+	// 	fmt.Printf("Map donot reset %v\n", *TaskID)
+	// }
 	return nil
 }
 
 func (c *Coordinator) SetReduceTaskUnassign(TaskID *int, reply *bool) error {
-	time.Sleep(5 * time.Second)
-	fmt.Printf("Reduce reset %v func begin\n", *TaskID)
+	time.Sleep(8 * time.Second)
+	// fmt.Printf("Reduce reset %v func begin\n", *TaskID)
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
@@ -169,10 +170,11 @@ func (c *Coordinator) SetReduceTaskUnassign(TaskID *int, reply *bool) error {
 	if c.ReduceTaskState[*TaskID] != 2 {
 		c.ReduceTaskState[*TaskID] = 0
 		*reply = true
-		fmt.Printf("Reduce has reset %v\n", *TaskID)
-	} else {
-		fmt.Printf("Reduce donot reset %v\n", *TaskID)
+		// fmt.Printf("Reduce has reset %v\n", *TaskID)
 	}
+	// else {
+	// 	fmt.Printf("Reduce donot reset %v\n", *TaskID)
+	// }
 	return nil
 }
 
