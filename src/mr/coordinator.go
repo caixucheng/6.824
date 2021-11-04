@@ -72,6 +72,7 @@ func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
 				worker.NumberOfMapWork = len(c.MapTaskState)
 				worker.NumberOfReduceWork = c.NumberOfReduce
 				c.MapTaskState[i] = 1
+				go c.SetMapTaskUnassign(&worker.TaskID, new(bool))
 				break
 			}
 		}
@@ -90,6 +91,7 @@ func (c *Coordinator) GetTask(workerType *string, worker *WorkerDetail) error {
 				worker.NumberOfReduceWork = c.NumberOfReduce
 				c.ReduceTaskState[i] = 1
 				assignReduceTask = true
+				go c.SetReduceTaskUnassign(&worker.TaskID, new(bool))
 				fmt.Printf("Coordinator assign reduce work %v\n", i)
 				break
 			}
@@ -141,7 +143,7 @@ func (c *Coordinator) FinishTask(worker *WorkerDetail, reply *bool) error {
 }
 
 func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 	fmt.Println("Map reset func begin")
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
@@ -158,7 +160,7 @@ func (c *Coordinator) SetMapTaskUnassign(TaskID *int, reply *bool) error {
 }
 
 func (c *Coordinator) SetReduceTaskUnassign(TaskID *int, reply *bool) error {
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 	fmt.Printf("Reduce reset %v func begin\n", *TaskID)
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()

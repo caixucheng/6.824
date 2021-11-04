@@ -69,7 +69,7 @@ func MapWork(mapf func(string, string) []KeyValue) {
 			time.Sleep(3 * time.Second)
 			continue
 		} else {
-			go CallSetMapTaskUnassign(worker.TaskID)
+			// go CallSetMapTaskUnassign(worker.TaskID)
 			fmt.Printf("Maper open the %v\n", worker.TaskName)
 		}
 
@@ -122,7 +122,7 @@ func ReduceWork(reducef func(string, []string) string) {
 			time.Sleep(3 * time.Second)
 			continue
 		} else {
-			go CallSetReduceTaskUnassign(worker.TaskID)
+			// go CallSetReduceTaskUnassign(worker.TaskID)
 			fmt.Printf("Reducer open the mr-*-%v\n", worker.TaskID)
 		}
 
