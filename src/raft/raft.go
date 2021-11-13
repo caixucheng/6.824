@@ -19,6 +19,7 @@ package raft
 
 import (
 	//	"bytes"
+	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -70,6 +71,7 @@ type Raft struct {
 	currentTerm int
 	votedFor    int
 	vote        int
+	heartbeats  bool
 }
 
 // return currentTerm and whether this server
@@ -80,8 +82,11 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 
 	// Your code here (2A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	term = rf.currentTerm
-	if rf.votedFor == rf.me {
+	if rf.status == "leader" {
 		isleader = true
 	} else {
 		isleader = false
@@ -185,16 +190,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	defer rf.mu.Unlock()
 
 	if reply.Term < rf.currentTerm {
+		reply.VoteGranted = -1
 		reply.Success = false
 		return
 	}
 
-	if rf.votedFor == -1 {
+	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+		rf.status = "follower"
+		rf.currentTerm = reply.Term
 		rf.votedFor = args.CandidateId
+		rf.vote = 0
 
-		if reply.Term > rf.currentTerm {
-			rf.currentTerm = reply.Term
-		}
+		reply.Term = rf.currentTerm
 		reply.VoteGranted = 1
 		reply.Success = true
 	}
@@ -250,9 +257,21 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	if reply.Term < rf.currentTerm {
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	if args.Term < rf.currentTerm {
 		reply.Success = false
 		return
+	} else {
+		rf.status = "follower"
+		rf.currentTerm = args.Term
+		rf.votedFor = -1
+		rf.vote = 0
+		rf.heartbeats = true
+
+		reply.Success = true
 	}
 }
 
@@ -314,44 +333,48 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
-		var timeout time.Duration
 		if rf.status == "leader" {
-			timeout = 150
+			time.Sleep(150 * time.Millisecond)
 		} else {
-			timeout = time.Duration(rand.Intn(150) + 150)
+			time.Sleep(time.Duration(rand.Intn(150)+150) * time.Millisecond)
 		}
-		time.Sleep(timeout * time.Millisecond)
 
 		rf.mu.Lock()
 		defer rf.mu.Unlock()
 
 		if rf.status == "follower" {
-			// become candidate
-			rf.currentTerm++
-			rf.vote = 1
-			args := RequestVoteArgs{
-				Term:        rf.currentTerm,
-				CandidateId: rf.me,
-			}
-			reply := RequestVoteReply{}
-			for i := 0; i < len(rf.peers); i++ {
-				rf.sendRequestVote(i, &args, &reply)
-
-				if reply.Success {
-					rf.vote++
-				} else {
-					rf.status = "follwer"
-					rf.votedFor = -1
-					rf.vote = 0
-					break
+			if rf.heartbeats {
+				rf.heartbeats = false
+				log.Printf("%v server receive a heartbeat!\n", rf.me)
+				break
+			} else {
+				// become candidate
+				log.Printf("%v server become a candidate!\n", rf.me)
+				rf.vote = 1
+				rf.currentTerm++
+				args := RequestVoteArgs{
+					Term:        rf.currentTerm,
+					CandidateId: rf.me,
 				}
+				reply := RequestVoteReply{}
+				for i := 0; i < len(rf.peers); i++ {
+					rf.sendRequestVote(i, &args, &reply)
 
-				if rf.vote > len(rf.peers)/2 {
-					rf.status = "leader"
-					rf.votedFor = -1
-					rf.vote = 0
+					if reply.Success && reply.VoteGranted == 1 {
+						rf.vote++
+					} else {
+						rf.status = "follwer"
+						rf.votedFor = -1
+						rf.vote = 0
+						break
+					}
 
-					break
+					if rf.vote > len(rf.peers)/2 {
+						rf.status = "leader"
+						rf.votedFor = -1
+						rf.vote = 0
+						break
+					}
 				}
 			}
 		}
@@ -398,6 +421,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+
+	log.Printf("%v server start!\n", rf.me)
 
 	return rf
 }

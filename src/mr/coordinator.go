@@ -199,11 +199,15 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
 	ret := false
 
 	// Your code here.
 	if c.MapTaskAllDone && c.ReduceTaskAllDone {
 		ret = true
+		time.Sleep(3 * time.Second)
 	}
 
 	return ret
