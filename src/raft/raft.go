@@ -95,6 +95,10 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	term = rf.currentTerm
 	isleader = rf.state == "leader"
 
@@ -372,6 +376,8 @@ func (rf *Raft) ticker() {
 			rf.currentTerm++
 			rf.votedFor = rf.me
 
+			log.Printf("%v server become a candidate\n", rf.me)
+
 			args := RequestVoteArgs{
 				Term:        rf.currentTerm,
 				CandidateId: rf.me,
@@ -380,12 +386,12 @@ func (rf *Raft) ticker() {
 				if i != rf.me {
 					reply := RequestVoteReply{}
 					rf.sendRequestVote(i, &args, &reply)
-
 					if reply.Success {
-						if reply.VoteGranted == 1 {
-							rf.vote++
-						}
+						log.Printf("%v server send heartbeats msg to %v server\n", rf.me, i)
+					} else {
+						log.Fatalf("%v server send heartbeats msg to %v server failed\n", rf.me, i)
 					}
+					rf.vote += reply.VoteGranted
 				}
 				if rf.vote > len(rf.peers)/2 {
 					break
@@ -394,6 +400,7 @@ func (rf *Raft) ticker() {
 		}
 
 		rf.state = "leader"
+		rf.vote = 0
 
 		args := AppendEntriesArgs{
 			Term:     rf.currentTerm,
@@ -403,9 +410,10 @@ func (rf *Raft) ticker() {
 			if i != rf.me {
 				reply := AppendEntriesReply{}
 				rf.sendAppendEntries(i, &args, &reply)
-
 				if reply.Success {
-
+					log.Printf("%v server send heartbeats msg to %v server\n", rf.me, i)
+				} else {
+					log.Fatalf("%v server send heartbeats msg to %v server failed\n", rf.me, i)
 				}
 			}
 		}
@@ -448,6 +456,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+
+	log.Printf("%v server startup!\n", rf.me)
 
 	return rf
 }
