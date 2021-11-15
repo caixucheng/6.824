@@ -106,7 +106,7 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 		// the request has been sent.
 	case <-e.done:
 		// entire Network has been destroyed.
-		log.Println("entire Network has been destroyed.")
+		// log.Println("entire Network has been destroyed.")
 		return false
 	}
 
@@ -122,7 +122,7 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 		}
 		return true
 	} else {
-		log.Println("the reply not ok.")
+		// log.Println("the reply not ok.")
 		return false
 	}
 }

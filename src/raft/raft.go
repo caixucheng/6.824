@@ -76,12 +76,12 @@ type Raft struct {
 	votedFor    int
 
 	// Volatile state on all servers:
-	commitIndex int
-	lastApplied int
+	// commitIndex int
+	// lastApplied int
 
 	// Volatile state on leaders:
-	nextIndex  []int
-	matchIndex []int
+	// nextIndex  []int
+	// matchIndex []int
 }
 
 // return currentTerm and whether this server
@@ -198,7 +198,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term < rf.currentTerm {
 		log.Printf("%v server request vote for %v server failed\n", args.CandidateId, rf.me)
 		return
-	} else if args.Term > rf.currentTerm {
+	} else if args.Term >= rf.currentTerm {
 		if rf.status == "follower" {
 			if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 				log.Printf("%v server grant a vote to %v\n", rf.me, args.CandidateId)
@@ -284,6 +284,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.receiveAppendEntriesMessage = true
 	} else {
 		log.Printf("%v server receive heartbeats and become to a follower from %v server\n", rf.me, args.LeaderId)
+		rf.status = "follower"
 		rf.currentTerm = args.Term
 		rf.receiveAppendEntriesMessage = true
 	}
@@ -365,6 +366,9 @@ func (rf *Raft) ticker() {
 		if rf.receiveRequestVoteMessage || rf.receiveAppendEntriesMessage {
 			rf.receiveRequestVoteMessage = false
 			rf.receiveAppendEntriesMessage = false
+			log.Printf("%v server reset timeout", rf.me)
+			// log.Printf("%v", rf)
+			rf.mu.Unlock()
 			continue
 		}
 
@@ -388,7 +392,7 @@ func (rf *Raft) ticker() {
 							log.Printf("%v server receive a vote from %v", rf.me, i)
 						}
 					} else {
-						log.Fatalf("%v server failed to send request vote msg to %v", rf.me, i)
+						log.Printf("%v server failed to send request vote msg to %v", rf.me, i)
 					}
 				}
 				if rf.vote > len(rf.peers)/2 {
@@ -396,6 +400,8 @@ func (rf *Raft) ticker() {
 					rf.status = "leader"
 					rf.votedFor = -1
 					rf.vote = 0
+					rf.receiveAppendEntriesMessage = false
+					rf.receiveRequestVoteMessage = false
 					break
 				}
 			}
@@ -412,7 +418,7 @@ func (rf *Raft) ticker() {
 					if rf.sendAppendEntries(i, &AEargs, &AEreply) {
 						log.Printf("%v server successfully send heartbeat msg to %v", rf.me, i)
 					} else {
-						log.Fatalf("%v server failed to send heartbeat msg to %v", rf.me, i)
+						log.Printf("%v server failed to send heartbeat msg to %v", rf.me, i)
 					}
 				}
 			}
