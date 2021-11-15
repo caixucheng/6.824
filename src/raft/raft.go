@@ -66,14 +66,10 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
-	state                       string
+	status                      string
 	vote                        int
 	receiveAppendEntriesMessage bool
 	receiveRequestVoteMessage   bool
-	electTimer                  time.Timer
-	heartbeatsTimer             time.Timer
-	electTimeout                time.Duration
-	heartbeatsTimeout           time.Duration
 
 	// Persistent state on all servers:
 	currentTerm int
@@ -100,7 +96,7 @@ func (rf *Raft) GetState() (int, bool) {
 	defer rf.mu.Unlock()
 
 	term = rf.currentTerm
-	isleader = rf.state == "leader"
+	isleader = rf.status == "leader"
 
 	return term, isleader
 }
@@ -196,27 +192,27 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	// log.Printf("args.CandidateId: %v, args.Term: %v\n", args.CandidateId, args.Term)
+
 	reply.Success = true
 	if args.Term < rf.currentTerm {
 		log.Printf("%v server request vote for %v server failed\n", args.CandidateId, rf.me)
 		return
-	} else if args.Term == rf.currentTerm {
-		if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
-			rf.votedFor = args.CandidateId
-			reply.VoteGranted = 1
-			log.Printf("%v server grant a vote to %v\n", rf.me, args.CandidateId)
-			// reset elect timeout
-			// rf.resetElectTimer()
+	} else if args.Term > rf.currentTerm {
+		if rf.status == "follower" {
+			if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+				log.Printf("%v server grant a vote to %v\n", rf.me, args.CandidateId)
+				reply.VoteGranted = 1
+				rf.votedFor = args.CandidateId
+				rf.receiveRequestVoteMessage = true
+			}
+			return
+		} else {
+			log.Printf("%v server is %v, step down because of %v server\n", args.CandidateId, rf.status, rf.me)
+			rf.status = "follower"
+			rf.currentTerm = args.Term
 			rf.receiveRequestVoteMessage = true
 		}
-		return
-	} else {
-		log.Printf("%v server is %v, step down because of %v server\n", args.CandidateId, rf.state, rf.me)
-		rf.currentTerm = args.Term
-		rf.state = "follower"
-		// reset elect timeout
-		// rf.resetElectTimer()
-		rf.receiveRequestVoteMessage = true
 	}
 }
 
@@ -277,14 +273,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	// log.Printf("args.LeaderId: %v\nargs.Term: %v\n", args.LeaderId, args.Term)
+
 	reply.Success = true
 	if args.Term < rf.currentTerm {
 		log.Printf("%v server receive heartbeats from %v server failed\n", rf.me, args.LeaderId)
 		return
 	} else if args.Term == rf.currentTerm {
 		log.Printf("%v server receive heartbeats from %v server\n", rf.me, args.LeaderId)
-		// reset elect timeout
-		// rf.resetElectTimer()
 		rf.receiveAppendEntriesMessage = true
 	} else {
 		log.Printf("%v server receive heartbeats and become to a follower from %v server\n", rf.me, args.LeaderId)
@@ -294,7 +290,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
 
@@ -336,6 +332,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+	log.Printf("%v server has been killed\n", rf.me)
 }
 
 func (rf *Raft) killed() bool {
@@ -351,72 +348,78 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
-		// _, isLeader := rf.GetState()
 
 		rf.mu.Lock()
-		state := rf.state
-		rf.mu.Unlock()
 
-		if state == "leader" {
-			time.Sleep(rf.heartbeatsTimeout)
+		var timeout time.Duration
+		if rf.status == "leader" {
+			timeout = 100
 		} else {
-			electTimeout := time.Duration(rand.Intn(400) + 400)
-			time.Sleep(electTimeout)
+			timeout = time.Duration(rand.Intn(400) + 400)
+		}
+		rf.mu.Unlock()
+		time.Sleep(timeout * time.Millisecond)
+
+		rf.mu.Lock()
+
+		if rf.receiveRequestVoteMessage || rf.receiveAppendEntriesMessage {
+			rf.receiveRequestVoteMessage = false
+			rf.receiveAppendEntriesMessage = false
+			continue
 		}
 
-		rf.mu.Lock()
-		defer rf.mu.Unlock()
+		if rf.status == "follower" {
+			// become candidate
+			log.Printf("%v become a candidate", rf.me)
 
-		if rf.receiveAppendEntriesMessage || rf.receiveRequestVoteMessage {
-			rf.receiveAppendEntriesMessage = false
-			rf.receiveRequestVoteMessage = false
-			continue
-		} else {
-			rf.state = "candidiate"
+			rf.vote = 1
 			rf.currentTerm++
-			rf.votedFor = rf.me
 
-			log.Printf("%v server become a candidate\n", rf.me)
-
-			args := RequestVoteArgs{
+			RVargs := RequestVoteArgs{
 				Term:        rf.currentTerm,
 				CandidateId: rf.me,
 			}
 			for i := 0; i < len(rf.peers); i++ {
 				if i != rf.me {
-					reply := RequestVoteReply{}
-					rf.sendRequestVote(i, &args, &reply)
-					if reply.Success {
-						log.Printf("%v server send heartbeats msg to %v server\n", rf.me, i)
+					RVreply := RequestVoteReply{}
+					if rf.sendRequestVote(i, &RVargs, &RVreply) {
+						if RVreply.VoteGranted == 1 {
+							rf.vote++
+							log.Printf("%v server receive a vote from %v", rf.me, i)
+						}
 					} else {
-						log.Fatalf("%v server send heartbeats msg to %v server failed\n", rf.me, i)
+						log.Fatalf("%v server failed to send request vote msg to %v", rf.me, i)
 					}
-					rf.vote += reply.VoteGranted
 				}
 				if rf.vote > len(rf.peers)/2 {
+					log.Printf("%v become a leader", rf.me)
+					rf.status = "leader"
+					rf.votedFor = -1
+					rf.vote = 0
 					break
 				}
 			}
 		}
 
-		rf.state = "leader"
-		rf.vote = 0
-
-		args := AppendEntriesArgs{
-			Term:     rf.currentTerm,
-			LeaderId: rf.me,
-		}
-		for i := 0; i < len(rf.peers); i++ {
-			if i != rf.me {
-				reply := AppendEntriesReply{}
-				rf.sendAppendEntries(i, &args, &reply)
-				if reply.Success {
-					log.Printf("%v server send heartbeats msg to %v server\n", rf.me, i)
-				} else {
-					log.Fatalf("%v server send heartbeats msg to %v server failed\n", rf.me, i)
+		if rf.status == "leader" {
+			AEargs := AppendEntriesArgs{
+				Term:     rf.currentTerm,
+				LeaderId: rf.me,
+			}
+			for i := 0; i < len(rf.peers); i++ {
+				if i != rf.me {
+					AEreply := AppendEntriesReply{}
+					if rf.sendAppendEntries(i, &AEargs, &AEreply) {
+						log.Printf("%v server successfully send heartbeat msg to %v", rf.me, i)
+					} else {
+						log.Fatalf("%v server failed to send heartbeat msg to %v", rf.me, i)
+					}
 				}
 			}
 		}
+
+		rf.mu.Unlock()
+
 	}
 }
 
@@ -445,9 +448,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-	rf.state = "follower"
-	rf.heartbeatsTimeout = 100
-	// defer rf.resetElectTimer()
+	rf.status = "follower"
 	rf.currentTerm = 0
 	rf.votedFor = -1
 
