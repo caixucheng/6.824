@@ -202,6 +202,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		if rf.status == "follower" {
 			if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 				log.Printf("%v server grant a vote to %v\n", rf.me, args.CandidateId)
+				log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 				reply.VoteGranted = 1
 				rf.votedFor = args.CandidateId
 				rf.receiveRequestVoteMessage = true
@@ -209,6 +210,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			return
 		} else {
 			log.Printf("%v server is %v, step down because of %v server\n", args.CandidateId, rf.status, rf.me)
+			log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 			rf.status = "follower"
 			rf.currentTerm = args.Term
 			rf.receiveRequestVoteMessage = true
@@ -278,12 +280,15 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Success = true
 	if args.Term < rf.currentTerm {
 		log.Printf("%v server receive heartbeats from %v server failed\n", rf.me, args.LeaderId)
+		log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 		return
 	} else if args.Term == rf.currentTerm {
 		log.Printf("%v server receive heartbeats from %v server\n", rf.me, args.LeaderId)
+		log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 		rf.receiveAppendEntriesMessage = true
 	} else {
 		log.Printf("%v server receive heartbeats and become to a follower from %v server\n", rf.me, args.LeaderId)
+		log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 		rf.status = "follower"
 		rf.currentTerm = args.Term
 		rf.receiveAppendEntriesMessage = true
@@ -367,7 +372,7 @@ func (rf *Raft) ticker() {
 			rf.receiveRequestVoteMessage = false
 			rf.receiveAppendEntriesMessage = false
 			log.Printf("%v server reset timeout", rf.me)
-			// log.Printf("%v", rf)
+			log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 			rf.mu.Unlock()
 			continue
 		}
@@ -375,9 +380,11 @@ func (rf *Raft) ticker() {
 		if rf.status == "follower" {
 			// become candidate
 			log.Printf("%v become a candidate", rf.me)
+			log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 
 			rf.vote = 1
 			rf.currentTerm++
+			rf.status = "candidate"
 
 			RVargs := RequestVoteArgs{
 				Term:        rf.currentTerm,
@@ -390,13 +397,16 @@ func (rf *Raft) ticker() {
 						if RVreply.VoteGranted == 1 {
 							rf.vote++
 							log.Printf("%v server receive a vote from %v", rf.me, i)
+							log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 						}
 					} else {
 						log.Printf("%v server failed to send request vote msg to %v", rf.me, i)
+						log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 					}
 				}
 				if rf.vote > len(rf.peers)/2 {
 					log.Printf("%v become a leader", rf.me)
+					log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 					rf.status = "leader"
 					rf.votedFor = -1
 					rf.vote = 0
@@ -417,8 +427,10 @@ func (rf *Raft) ticker() {
 					AEreply := AppendEntriesReply{}
 					if rf.sendAppendEntries(i, &AEargs, &AEreply) {
 						log.Printf("%v server successfully send heartbeat msg to %v", rf.me, i)
+						log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 					} else {
 						log.Printf("%v server failed to send heartbeat msg to %v", rf.me, i)
+						log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 					}
 				}
 			}
@@ -465,6 +477,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	go rf.ticker()
 
 	log.Printf("%v server startup!\n", rf.me)
+	log.Printf("%v %v %v %v %v %v", rf.status, rf.vote, rf.receiveAppendEntriesMessage, rf.receiveRequestVoteMessage, rf.currentTerm, rf.votedFor)
 
 	return rf
 }
